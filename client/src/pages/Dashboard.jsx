@@ -32,9 +32,8 @@ export default function Dashboard() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Student's borrowed books & overdue fines
+  // Student's borrowed books
   const [myLoans, setMyLoans] = useState([]);
-  const [totalFines, setTotalFines] = useState(0);
   const [overdueCount, setOverdueCount] = useState(0);
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [returningId, setReturningId] = useState(null);
@@ -98,7 +97,6 @@ export default function Dashboard() {
     try {
       const res = await api.get('/transactions/my-books');
       setMyLoans(res.data.transactions || []);
-      setTotalFines(res.data.totalFines || 0);
       setOverdueCount(res.data.totalOverdueCount || 0);
     } catch {
       // Ignore
@@ -150,15 +148,6 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      label: 'Total Users',
-      value: stats.totalUsers,
-      subtext: 'registered members',
-      icon: Users,
-      color: 'bg-blue-500',
-      bgLight: 'bg-blue-50',
-      textColor: 'text-blue-700',
-    },
-    {
       label: 'Currently in Library',
       value: stats.activeInLibrary,
       subtext: 'live library visitors',
@@ -169,34 +158,34 @@ export default function Dashboard() {
       pulse: true,
     },
     {
-      label: 'Total Books',
+      label: 'Catalog Books',
       value: stats.totalBooks,
-      subtext: stats.totalCopies ? `${stats.totalCopies} physical copies` : 'titles in catalog',
+      subtext: stats.totalCopies ? `${stats.totalCopies} physical copies` : 'titles available',
       icon: BookOpen,
       color: 'bg-purple-500',
       bgLight: 'bg-purple-50',
       textColor: 'text-purple-700',
     },
     {
-      label: 'Books Borrowed',
-      value: stats.booksBorrowed,
-      subtext: 'active loans across all users',
+      label: 'My Borrowed Books',
+      value: myLoans.length,
+      subtext: 'active loans on your account',
       icon: BookMarked,
-      color: 'bg-amber-500',
-      bgLight: 'bg-amber-50',
-      textColor: 'text-amber-700',
+      color: 'bg-indigo-500',
+      bgLight: 'bg-indigo-50',
+      textColor: 'text-indigo-700',
     },
     {
-      label: 'Overdue Fines Due',
-      value: `₹${totalFines}`,
+      label: 'Overdue Loans',
+      value: overdueCount,
       subtext:
-        totalFines > 0
+        overdueCount > 0
           ? `${overdueCount} book(s) past submission due date`
-          : 'All your loans are on time (₹0 fine)',
+          : 'All your loans are on time',
       icon: AlertCircle,
-      color: totalFines > 0 ? 'bg-red-500' : 'bg-emerald-500',
-      bgLight: totalFines > 0 ? 'bg-red-50' : 'bg-emerald-50',
-      textColor: totalFines > 0 ? 'text-red-700' : 'text-emerald-700',
+      color: overdueCount > 0 ? 'bg-red-500' : 'bg-emerald-500',
+      bgLight: overdueCount > 0 ? 'bg-red-50' : 'bg-emerald-50',
+      textColor: overdueCount > 0 ? 'text-red-700' : 'text-emerald-700',
     },
   ];
 
@@ -214,7 +203,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 text-sm">Library overview, overdue fines, and your active book loans</p>
+          <p className="text-gray-500 text-sm">Library overview, active loans, and submission status</p>
         </div>
         <div className="flex gap-2">
           <Link
@@ -234,24 +223,23 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Overdue Fine Notice Banner if fines > 0 */}
-      {totalFines > 0 && (
+      {/* Overdue Notice Banner if overdueCount > 0 */}
+      {overdueCount > 0 && (
         <div className="bg-red-50 border-2 border-red-300 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
           <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 text-xs">
             <p className="font-bold text-red-900 text-sm">
-              Missed Submission Notice: ₹{totalFines} Late Fine Due!
+              Missed Submission Notice: {overdueCount} Book(s) Overdue
             </p>
             <p className="text-red-700 mt-0.5">
-              You have {overdueCount} book(s) past their due date. Overdue fine is accumulated at ₹5/day. Please return
-              your overdue books to the librarian as soon as possible.
+              You have {overdueCount} book(s) past their due date. Please return your overdue books to the librarian as soon as possible.
             </p>
           </div>
         </div>
       )}
 
       {/* Stat Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map(({ label, value, subtext, icon: Icon, color, bgLight, textColor, pulse }) => (
           <div key={label} className={`${bgLight} rounded-2xl p-4 border border-gray-100 shadow-sm flex flex-col justify-between`}>
             <div>
@@ -334,7 +322,7 @@ export default function Dashboard() {
                       </span>
                     ) : isOverdue ? (
                       <span className="text-[10px] font-bold bg-red-100 text-red-800 px-2 py-0.5 rounded-full whitespace-nowrap border border-red-200">
-                        {loan.daysOverdue}d Late (₹{loan.fineAmount})
+                        {loan.daysOverdue}d Overdue
                       </span>
                     ) : (
                       <span className="text-[10px] font-bold bg-green-100 text-green-800 px-2 py-0.5 rounded-full whitespace-nowrap border border-green-200">
@@ -418,7 +406,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Overdue Fine Alert */}
+              {/* Overdue Notice Alert */}
               {selectedLoan.isOverdue && (
                 <div className="p-3 bg-red-100/70 border border-red-200 rounded-xl text-red-900 text-xs space-y-0.5">
                   <p className="font-bold flex items-center gap-1 text-red-800">
@@ -426,8 +414,7 @@ export default function Dashboard() {
                     Missed Submission Deadline ({selectedLoan.daysOverdue} days late)
                   </p>
                   <p className="text-[11px]">
-                    Accumulated late fine: <strong>₹{selectedLoan.fineAmount}</strong> (₹5 per day overdue). Please return
-                    to the library immediately.
+                    This book is past its scheduled return date. Please return it to the library immediately.
                   </p>
                 </div>
               )}

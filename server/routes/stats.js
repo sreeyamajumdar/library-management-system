@@ -10,14 +10,17 @@ const router = express.Router();
 /**
  * GET /api/stats
  * Consolidated dashboard statistics.
- * Returns user-scoped data for students and full-library data for admins.
+ * Role-aware:
+ * - Admin receives full library-wide metrics (total registered members, system-wide active borrows, pending returns, visitor sessions).
+ * - Students and Teachers receive only their personal loan metrics and general catalog size; total-user counts are strictly hidden.
  */
 router.get('/', auth, async (req, res) => {
   try {
     const isAdmin = req.user?.position?.toLowerCase() === 'admin';
 
+    // 1. Non-admin view (Students & Teachers): strictly private user-scoped metrics
     if (!isAdmin) {
-      const [myTransactions, booksAgg, totalUsers] = await Promise.all([
+      const [myTransactions, booksAgg, totalBookTitles, activeSessionCount] = await Promise.all([
         BookTransaction.find({ user: req.user._id, isReturned: false })
           .populate('book', 'title author isbn')
           .sort({ borrowDate: -1 }),
@@ -30,27 +33,18 @@ router.get('/', auth, async (req, res) => {
             },
           },
         ]),
-        User.countDocuments(),
+        Book.countDocuments(),
+        LibrarySession.countDocuments({ isActive: true }),
       ]);
 
       const totalCopies = booksAgg[0]?.totalCopies || 0;
       const personalBorrowCount = myTransactions.length;
-      const totalFines = myTransactions.reduce((sum, tx) => {
-        if (tx.isReturned || !tx.dueDate) return sum;
-        const due = new Date(tx.dueDate);
-        const now = new Date();
-        if (now > due) {
-          const diffDays = Math.ceil((now - due) / (1000 * 60 * 60 * 24));
-          return sum + diffDays * 5;
-        }
-        return sum;
-      }, 0);
 
       return res.json({
-        totalUsers,
-        currentVisitors: 0,
-        activeInLibrary: 0,
-        totalBooks: await Book.countDocuments(),
+        // Total users count is intentionally omitted for privacy
+        currentVisitors: activeSessionCount,
+        activeInLibrary: activeSessionCount,
+        totalBooks: totalBookTitles,
         totalCopies,
         booksBorrowed: personalBorrowCount,
         activeBorrows: personalBorrowCount,
@@ -68,11 +62,11 @@ router.get('/', auth, async (req, res) => {
           dueDate: tx.dueDate,
           createdAt: tx.isReturned ? tx.returnDate || tx.borrowDate : tx.borrowDate,
         })),
-        totalFines,
         userScoped: true,
       });
     }
 
+    // 2. Admin view: full administrative statistics
     const [
       totalUsers,
       currentVisitors,
@@ -104,15 +98,15 @@ router.get('/', auth, async (req, res) => {
     ]);
 
     const totalCopies = booksAgg[0]?.totalCopies || 0;
-    const booksBorrowed = Math.max(activeBorrows, booksAgg[0]?.borrowedCopies || 0);
+    const totalBorrowedCopies = booksAgg[0]?.borrowedCopies || 0;
 
     const recentActivity = rawActivity.map((t) => ({
       _id: t._id,
       user: t.user,
       book: t.book,
-      userName: t.user?.name || 'Unknown Member',
+      userName: t.user?.name || 'Unknown User',
       bookTitle: t.book?.title || 'Unknown Book',
-      type: t.isReturned ? 'return' : 'borrow',
+      type: t.isReturned ? 'return' : t.isPendingReturn ? 'pending_return' : 'borrow',
       isReturned: t.isReturned,
       borrowDate: t.borrowDate,
       returnDate: t.returnDate,
@@ -121,12 +115,13 @@ router.get('/', auth, async (req, res) => {
     }));
 
     res.json({
-      totalUsers,
+      totalUsers, // Available only to Admin
       currentVisitors,
       activeInLibrary: currentVisitors,
       totalBooks,
       totalCopies,
-      booksBorrowed,
+      totalBorrowedCopies,
+      booksBorrowed: activeBorrows,
       activeBorrows,
       pendingReturns,
       recentActivity,
@@ -134,7 +129,7 @@ router.get('/', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Stats error:', error);
-    res.status(500).json({ message: 'Server error fetching stats.' });
+    res.status(500).json({ message: 'Server error fetching statistics.' });
   }
 });
 

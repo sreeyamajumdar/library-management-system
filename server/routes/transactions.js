@@ -5,23 +5,9 @@ const auth = require('../middleware/auth');
 
 const router = express.Router();
 
-// Default loan period: 14 days
-const LOAN_PERIOD_DAYS = 14;
-
-// Fine per day overdue (₹5 / day)
-const FINE_PER_DAY = 5;
-
-/**
- * Helper to calculate days overdue and accumulated late fee.
- */
-const calculateFine = (dueDate) => {
-  const now = new Date();
-  const due = new Date(dueDate);
-  if (now <= due) return { daysOverdue: 0, fine: 0 };
-  const diffMs = now.getTime() - due.getTime();
-  const daysOverdue = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  return { daysOverdue, fine: daysOverdue * FINE_PER_DAY };
-};
+// Loan periods by role
+const STUDENT_LOAN_DAYS = 14;
+const TEACHER_LOAN_DAYS = 30;
 
 /**
  * GET /api/transactions/stats
@@ -80,8 +66,8 @@ router.get('/recent', auth, async (req, res) => {
  * POST /api/transactions/borrow
  * Borrow a book by its bookId.
  * Performs atomic decrement on availableCopies and increments borrowedCopies.
- * Enforces borrowing limit (max 5 active books for students) and duplicate loan prevention.
- * Sets dueDate to 14 days from now.
+ * Enforces borrowing limit (max 6 for Students, 10 for Teachers) and duplicate loan prevention.
+ * Sets dueDate to 14 days for Students, 30 days for Teachers.
  * Protected route.
  * Body: { bookId }
  */
@@ -93,16 +79,17 @@ router.post('/borrow', auth, async (req, res) => {
       return res.status(400).json({ message: 'Book ID is required.' });
     }
 
-    // 1. Check student borrowing limit
-    const MAX_BORROW_LIMIT = 5;
+    // 1. Check borrowing limit (10 for Teachers, 6 for Students)
+    const isTeacher = req.user.position?.toLowerCase() === 'teacher';
+    const maxLimit = isTeacher ? 10 : 6;
     const activeLoansCount = await BookTransaction.countDocuments({
       user: req.user._id,
       isReturned: false,
     });
 
-    if (activeLoansCount >= MAX_BORROW_LIMIT && req.user.position?.toLowerCase() === 'student') {
+    if (activeLoansCount >= maxLimit) {
       return res.status(400).json({
-        message: `You have reached the maximum limit of ${MAX_BORROW_LIMIT} borrowed books. Please return an existing book before checking out another.`,
+        message: `You have reached the maximum limit of ${maxLimit} borrowed books for ${req.user.position || 'Student'}. Please return an existing book before checking out another.`,
       });
     }
 
@@ -132,9 +119,10 @@ router.post('/borrow', auth, async (req, res) => {
       return res.status(400).json({ message: 'No copies of this book are currently available.' });
     }
 
-    // 4. Calculate due date (14 days from now)
+    // 4. Calculate due date (role-based: 30 days for Teacher, 14 days for Student)
+    const loanDays = isTeacher ? TEACHER_LOAN_DAYS : STUDENT_LOAN_DAYS;
     const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + LOAN_PERIOD_DAYS);
+    dueDate.setDate(dueDate.getDate() + loanDays);
 
     // 5. Create the transaction
     const transaction = new BookTransaction({
@@ -200,18 +188,18 @@ router.post('/request-return', auth, async (req, res) => {
       });
     }
 
-    const { daysOverdue, fine } = calculateFine(transaction.dueDate);
+    const daysOverdue = transaction.dueDate < new Date()
+      ? Math.ceil((new Date() - new Date(transaction.dueDate)) / (1000 * 60 * 60 * 24))
+      : 0;
 
     transaction.isPendingReturn = true;
     transaction.returnRequestedAt = new Date();
-    transaction.fineAmount = fine;
     await transaction.save();
 
     res.json({
       message: 'Return request submitted. Approval pending: Please hand the physical book to the librarian to approve and confirm.',
       isPendingReturn: true,
       transaction,
-      fineAmount: fine,
       daysOverdue,
     });
   } catch (error) {
@@ -240,7 +228,9 @@ router.get('/pending-returns', auth, async (req, res) => {
       .sort({ returnRequestedAt: -1 });
 
     const formatted = pending.map((t) => {
-      const { daysOverdue, fine } = calculateFine(t.dueDate);
+      const daysOverdue = t.dueDate < new Date()
+        ? Math.ceil((new Date() - new Date(t.dueDate)) / (1000 * 60 * 60 * 24))
+        : 0;
       return {
         _id: t._id,
         user: t.user,
@@ -249,7 +239,6 @@ router.get('/pending-returns', auth, async (req, res) => {
         dueDate: t.dueDate,
         returnRequestedAt: t.returnRequestedAt,
         daysOverdue,
-        fineAmount: fine,
       };
     });
 
@@ -287,14 +276,10 @@ router.post('/approve-return', auth, async (req, res) => {
       return res.status(400).json({ message: 'This book has already been confirmed returned.' });
     }
 
-    const { fine } = calculateFine(transaction.dueDate);
-
     // Mark as returned and clear pending flag
     transaction.isReturned = true;
     transaction.isPendingReturn = false;
     transaction.returnDate = new Date();
-    transaction.fineAmount = fine;
-    transaction.finePaid = true;
     await transaction.save();
 
     // Increment availableCopies, decrement borrowedCopies atomically
@@ -332,12 +317,12 @@ router.get('/my-books', auth, async (req, res) => {
       .populate('book', 'title author isbn genre edition courses totalCopies availableCopies coverImage')
       .sort({ borrowDate: -1 });
 
-    let totalFines = 0;
     let totalOverdueCount = 0;
 
     const enriched = transactions.map((t) => {
-      const { daysOverdue, fine } = calculateFine(t.dueDate);
-      totalFines += fine;
+      const daysOverdue = t.dueDate < new Date()
+        ? Math.ceil((new Date() - new Date(t.dueDate)) / (1000 * 60 * 60 * 24))
+        : 0;
       if (daysOverdue > 0) totalOverdueCount++;
 
       return {
@@ -349,7 +334,6 @@ router.get('/my-books', auth, async (req, res) => {
         isPendingReturn: !!t.isPendingReturn,
         returnRequestedAt: t.returnRequestedAt,
         daysOverdue,
-        fineAmount: fine,
         isOverdue: daysOverdue > 0,
       };
     });
@@ -357,9 +341,7 @@ router.get('/my-books', auth, async (req, res) => {
     res.json({
       count: enriched.length,
       transactions: enriched,
-      totalFines,
       totalOverdueCount,
-      finePerDay: FINE_PER_DAY,
     });
   } catch (error) {
     console.error('My books error:', error);

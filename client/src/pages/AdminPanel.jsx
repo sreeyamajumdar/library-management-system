@@ -394,11 +394,34 @@ function ManageBooksTab({ api }) {
 function UsersTab({ api }) {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
+  const [filterRole, setFilterRole] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [showTeacherModal, setShowTeacherModal] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // New Teacher form
+  const [teacherForm, setTeacherForm] = useState({
+    name: '',
+    facultyId: '',
+    email: '',
+    department: '',
+    password: '',
+  });
+
+  // New Admin form
+  const [adminForm, setAdminForm] = useState({
+    name: '',
+    adminId: '',
+    email: '',
+    password: '',
+  });
 
   const fetchUsers = useCallback(async () => {
     try {
-      const params = search ? { search } : {};
+      const params = {};
+      if (search) params.search = search;
+      if (filterRole !== 'all') params.position = filterRole;
       const res = await api.get('/users', { params });
       setUsers(res.data.users || res.data || []);
     } catch {
@@ -406,27 +429,120 @@ function UsersTab({ api }) {
     } finally {
       setLoading(false);
     }
-  }, [api, search]);
+  }, [api, search, filterRole]);
 
   useEffect(() => {
     const debounce = setTimeout(() => {
       fetchUsers();
-    }, 300);
+    }, 250);
     return () => clearTimeout(debounce);
   }, [fetchUsers]);
 
+  const handleCreateTeacher = async (e) => {
+    e.preventDefault();
+    if (!teacherForm.name.trim() || !teacherForm.facultyId.trim() || !teacherForm.department.trim() || !teacherForm.password) {
+      toast.error('Please fill in all required teacher fields (name, faculty ID, department, password)');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.post('/users/teacher', teacherForm);
+      toast.success(res.data.message || 'Teacher account created successfully!');
+      setShowTeacherModal(false);
+      setTeacherForm({ name: '', facultyId: '', email: '', department: '', password: '' });
+      fetchUsers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create teacher account');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCreateAdmin = async (e) => {
+    e.preventDefault();
+    if (!adminForm.name.trim() || !adminForm.adminId.trim() || !adminForm.password) {
+      toast.error('Please fill in all required admin fields (name, admin ID, password)');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.post('/users/admin', adminForm);
+      toast.success(res.data.message || 'Administrator account created successfully!');
+      setShowAdminModal(false);
+      setAdminForm({ name: '', adminId: '', email: '', password: '' });
+      fetchUsers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to create admin account');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async (user) => {
+    if (!window.confirm(`Are you sure you want to delete account "${user.name}" (${user.position})?`)) {
+      return;
+    }
+    try {
+      await api.delete(`/users/${user._id}`);
+      toast.success(`Account for "${user.name}" deleted.`);
+      fetchUsers();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to delete account');
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search users..."
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-        />
+      {/* Top Action Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Search */}
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, ID, email..."
+              className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+          </div>
+
+          {/* Role Filter Tabs */}
+          <div className="flex rounded-xl bg-gray-100 p-1 text-xs">
+            {['all', 'Student', 'Teacher', 'Admin'].map((role) => (
+              <button
+                key={role}
+                onClick={() => setFilterRole(role)}
+                className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                  filterRole === role
+                    ? 'bg-white text-indigo-700 shadow-sm font-bold'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {role === 'all' ? 'All Roles' : role + 's'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Create Account Buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowTeacherModal(true)}
+            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition-colors shadow-sm"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Create Teacher Account</span>
+          </button>
+          <button
+            onClick={() => setShowAdminModal(true)}
+            className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold px-3 py-2 rounded-xl text-xs transition-colors shadow-sm"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Create Admin</span>
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -434,58 +550,257 @@ function UsersTab({ api }) {
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-600 uppercase text-[11px] font-semibold border-b border-gray-200">
                 <tr>
-                  <th className="px-4 py-3 text-left">Name</th>
-                  <th className="px-4 py-3 text-left">Enrollment No.</th>
+                  <th className="px-4 py-3 text-left">Member Name</th>
+                  <th className="px-4 py-3 text-left">Role</th>
+                  <th className="px-4 py-3 text-left">Unique ID</th>
                   <th className="px-4 py-3 text-left">Department</th>
-                  <th className="px-4 py-3 text-left">Position</th>
+                  <th className="px-4 py-3 text-left">Email</th>
                   <th className="px-4 py-3 text-left">Registered</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {users.map((u) => (
-                  <tr key={u._id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-semibold text-indigo-700">
-                          {u.name?.charAt(0)?.toUpperCase()}
+                {users.map((u) => {
+                  const role = (u.position || u.role || 'Student');
+                  const uniqueId = u.facultyId || u.adminId || u.enrollmentNumber || '—';
+                  return (
+                    <tr key={u._id} className="hover:bg-gray-50/80 transition-colors">
+                      <td className="px-4 py-3 font-semibold text-gray-900">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                            role === 'Admin' ? 'bg-purple-100 text-purple-700' :
+                            role === 'Teacher' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {u.name?.charAt(0)?.toUpperCase()}
+                          </div>
+                          <span>{u.name}</span>
                         </div>
-                        <span className="font-medium text-gray-900">{u.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 font-mono text-xs">{u.enrollmentNumber}</td>
-                    <td className="px-4 py-3 text-gray-600">{u.department}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          u.position === 'Admin'
-                            ? 'bg-purple-100 text-purple-700'
-                            : u.position === 'Teacher'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-700'
-                        }`}
-                      >
-                        {u.position}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          role === 'Admin' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                          role === 'Teacher' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          'bg-blue-50 text-blue-700 border-blue-200'
+                        }`}>
+                          {role}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-mono text-[11px]">
+                        {uniqueId}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {u.department || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">
+                        {u.email || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-[11px]">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleDeleteUser(u)}
+                          className="p-1 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors"
+                          title="Delete Account"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
-                      No users found
+                    <td colSpan="7" className="px-4 py-10 text-center text-gray-400 text-xs">
+                      No members found matching the selected filter.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Create Teacher Modal */}
+      {showTeacherModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Admin Provisioning</span>
+                <h3 className="text-base font-bold text-gray-900">Create New Teacher Account</h3>
+              </div>
+              <button onClick={() => setShowTeacherModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTeacher} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Faculty Full Name *</label>
+                <input
+                  type="text"
+                  value={teacherForm.name}
+                  onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })}
+                  placeholder="e.g. Dr. Sudip Das"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Faculty ID *</label>
+                <input
+                  type="text"
+                  value={teacherForm.facultyId}
+                  onChange={(e) => setTeacherForm({ ...teacherForm, facultyId: e.target.value })}
+                  placeholder="e.g. FAC202401 or 12024002001145"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Academic Department *</label>
+                <input
+                  type="text"
+                  value={teacherForm.department}
+                  onChange={(e) => setTeacherForm({ ...teacherForm, department: e.target.value })}
+                  placeholder="e.g. Computer Science and Engineering"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Institutional Email (Optional)</label>
+                <input
+                  type="email"
+                  value={teacherForm.email}
+                  onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })}
+                  placeholder="e.g. sudip.das@university.edu"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Initial Password * (min 6 chars)</label>
+                <input
+                  type="password"
+                  value={teacherForm.password}
+                  onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })}
+                  placeholder="Set initial password for teacher..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTeacherModal(false)}
+                  className="flex-1 py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl font-bold transition-colors shadow-sm"
+                >
+                  {submitting ? 'Creating...' : 'Create Teacher'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Admin Modal */}
+      {showAdminModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600">Security Provisioning</span>
+                <h3 className="text-base font-bold text-gray-900">Create New Administrator</h3>
+              </div>
+              <button onClick={() => setShowAdminModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAdmin} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Administrator Name *</label>
+                <input
+                  type="text"
+                  value={adminForm.name}
+                  onChange={(e) => setAdminForm({ ...adminForm, name: e.target.value })}
+                  placeholder="e.g. Associate Librarian"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Admin ID *</label>
+                <input
+                  type="text"
+                  value={adminForm.adminId}
+                  onChange={(e) => setAdminForm({ ...adminForm, adminId: e.target.value })}
+                  placeholder="e.g. ADMIN02"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Official Email (Optional)</label>
+                <input
+                  type="email"
+                  value={adminForm.email}
+                  onChange={(e) => setAdminForm({ ...adminForm, email: e.target.value })}
+                  placeholder="e.g. librarian2@library.edu"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Password * (min 6 chars)</label>
+                <input
+                  type="password"
+                  value={adminForm.password}
+                  onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
+                  placeholder="Set administrator password..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminModal(false)}
+                  className="flex-1 py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 py-2 px-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-xl font-bold transition-colors shadow-sm"
+                >
+                  {submitting ? 'Creating...' : 'Create Admin'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -646,7 +961,7 @@ function ApproveReturnsTab({ api }) {
                   <th className="px-4 py-3">Book Title & ISBN</th>
                   <th className="px-4 py-3">Borrowed On</th>
                   <th className="px-4 py-3">Due Date</th>
-                  <th className="px-4 py-3">Overdue Fine</th>
+                  <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
@@ -672,12 +987,12 @@ function ApproveReturnsTab({ api }) {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {tx.fineAmount > 0 ? (
+                      {tx.daysOverdue > 0 ? (
                         <span className="text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded font-bold">
-                          ₹{tx.fineAmount} ({tx.daysOverdue}d late)
+                          {tx.daysOverdue}d Overdue
                         </span>
                       ) : (
-                        <span className="text-green-700 font-medium">₹0 (On Time)</span>
+                        <span className="text-emerald-700 font-medium">On Time</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
